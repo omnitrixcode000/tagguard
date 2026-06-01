@@ -28,12 +28,14 @@ function AuthForm() {
   const hasError = searchParams.get('error') === 'auth_failed'
   const [loading, setLoading] = useState<string | null>(null)
 
+  const next = searchParams.get('next') || '/app'
+
   const signIn = async (provider: 'google') => {
     setLoading(provider)
     await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         queryParams: provider === 'google'
           ? { access_type: 'offline', prompt: 'consent' }
           : undefined,

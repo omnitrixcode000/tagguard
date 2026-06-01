@@ -3,7 +3,88 @@ import { useEffect, useMemo, useState, use } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import SupportWidget from '@/app/components/SupportWidget'
-import PWAInstallBanner from '@/app/components/PWAInstallBanner'
+
+function DownloadScreen({ token }: { token: string }) {
+  const [isIOS, setIsIOS] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<any>(null)
+  const [installed, setInstalled] = useState(false)
+
+  useEffect(() => {
+    const ua = navigator.userAgent
+    setIsIOS(/iphone|ipad|ipod/i.test(ua) && !(window as any).MSStream)
+
+    // Save token so app can resume activate flow after install + login
+    localStorage.setItem('tg_pending_token', token)
+
+    // Pick up prompt captured globally in layout.tsx
+    if ((window as any).__pwaInstallPrompt) setInstallPrompt((window as any).__pwaInstallPrompt)
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [token])
+
+  if (installed) return (
+    <main style={{ minHeight: '100dvh', background: '#07111f', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: 56, marginBottom: 20 }}>✅</div>
+      <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 10 }}>App installed!</h2>
+      <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6, maxWidth: 300, marginBottom: 28 }}>
+        Open the TagGuard app from your home screen to sign in and activate this tag.
+      </p>
+    </main>
+  )
+
+  return (
+    <main style={{ minHeight: '100dvh', background: '#07111f', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', textAlign: 'center' }}>
+      <img src="/icon-192.png" alt="TagGuard" style={{ width: 80, height: 80, borderRadius: 22, marginBottom: 24, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }} />
+
+      <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 10 }}>Download TagGuard</h2>
+      <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6, maxWidth: 300, marginBottom: 32 }}>
+        This tag hasn't been activated yet. Install the app, sign in, and link it to your item — takes 30 seconds.
+      </p>
+
+      {isIOS ? (
+        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 18, padding: '20px 22px', maxWidth: 340, width: '100%', marginBottom: 24, textAlign: 'left', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14, color: '#e2e8f0' }}>Install on iPhone / iPad</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              ['1', 'Tap Share ⎋ at the bottom of Safari'],
+              ['2', 'Tap "Add to Home Screen"'],
+              ['3', 'Open the TagGuard app and sign in'],
+            ].map(([n, text]) => (
+              <div key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#185FA5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{n}</div>
+                <div style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.5, paddingTop: 3 }}>{text}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : installPrompt ? (
+        <button
+          onClick={async () => {
+            installPrompt.prompt()
+            const { outcome } = await installPrompt.userChoice
+            if (outcome === 'accepted') setInstalled(true)
+          }}
+          style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 0', fontSize: 16, fontWeight: 700, cursor: 'pointer', width: '100%', maxWidth: 340, marginBottom: 12 }}
+        >
+          📲 Install TagGuard
+        </button>
+      ) : (
+        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 18, padding: '18px 22px', maxWidth: 340, width: '100%', marginBottom: 24, textAlign: 'left', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, color: '#e2e8f0' }}>Install on Android</div>
+          <div style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6 }}>
+            Tap the <strong style={{ color: '#e2e8f0' }}>⋮ menu</strong> in Chrome → <strong style={{ color: '#e2e8f0' }}>Add to Home screen</strong>
+          </div>
+        </div>
+      )}
+
+      <p style={{ color: '#334155', fontSize: 12, marginTop: 8 }}>
+        Free to install · No app store required
+      </p>
+    </main>
+  )
+}
 
 type Tag = {
   id: string
@@ -36,6 +117,12 @@ export default function ScanPage({ params }: { params: Promise<{ token: string }
         .eq('active', true)
         .single()
 
+      if (!data) {
+        // Tag not registered — show neutral page (owner or finder can self-identify)
+        setLoading(false)
+        return
+      }
+
       setTag(data)
 
       if (data) {
@@ -56,6 +143,13 @@ export default function ScanPage({ params }: { params: Promise<{ token: string }
            will show its own permission prompt. Denied
            or unavailable = silently skipped.
         ────────────────────────────────────────────── */
+        // Notify owner of new scan (fire-and-forget)
+        fetch('/api/notify-owner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-webhook-secret': '' },
+          body: JSON.stringify({ type: 'scan', scan_token: token }),
+        }).catch(() => {})
+
         if (navigator.geolocation && eventRow?.id) {
           navigator.geolocation.getCurrentPosition(
             async (pos) => {
@@ -87,27 +181,12 @@ export default function ScanPage({ params }: { params: Promise<{ token: string }
     </main>
   )
 
-  /* ── Not found / not registered ──────────────── */
-  if (!tag) return (
-    <main className="min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <path d="M16 10v6m0 4h.01M28 16A12 12 0 1 1 4 16a12 12 0 0 1 24 0z"
-            stroke="#888" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      </div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-2">Tag not registered yet</h2>
-      <p className="text-sm text-gray-400 mb-6">This tag hasn't been linked to an item.</p>
-      <a href="/" className="text-teal-600 text-sm font-semibold">Visit TagGuard to register →</a>
-    </main>
-  )
+  /* ── Not registered — prompt owner to download app ──────── */
+  if (!tag) return <DownloadScreen token={token} />
 
   /* ── Found ────────────────────────────────────── */
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">
-
-      {/* PWA install prompt — shown to finders so they can install the app */}
-      <PWAInstallBanner />
 
       {/* Topbar */}
       <div className="bg-white border-b border-gray-100 px-6 py-4 text-center">

@@ -100,16 +100,8 @@ export default function Home() {
 
     stopScan()
 
-    if (data && data.owner_phone) {
-      /* Registered → go to finder/chat page */
-      router.push(`/scan/${token}`)
-    } else if (data) {
-      /* Tag exists but not registered yet */
-      router.push(`/register?token=${token}`)
-    } else {
-      /* Unknown token → go to register */
-      router.push(`/register?token=${token}`)
-    }
+    /* Always go to /scan/<token> — that page handles both registered and unregistered cases */
+    router.push(`/scan/${token}`)
   }
 
   const scanFrame = () => {
@@ -233,8 +225,8 @@ export default function Home() {
             </p>
 
             <div className={`${s.heroActions} ${r(3)}`} data-reveal>
-              <Link className={`${s.btn} ${s.teal}`} href="/register">
-                Get Started Free →
+              <Link className={`${s.btn} ${s.teal}`} href="/app">
+                Get the App →
               </Link>
               <Link className={`${s.btn} ${s.ghost}`} href="#how">
                 See the story
@@ -507,7 +499,7 @@ export default function Home() {
                     <li key={f}><span className={s.check}>✓</span> {f}</li>
                   ))}
                 </ul>
-                <Link href="/register" className={`${s.btn} ${s.teal}`}
+                <Link href="/app" className={`${s.btn} ${s.teal}`}
                   style={{ width: '100%', marginTop: 8 }}>
                   Choose {name}
                 </Link>
@@ -578,7 +570,7 @@ export default function Home() {
               TagGuard helps honest finders do the right thing —
               while keeping your private details protected.
             </p>
-            <Link href="/register" className={`${s.btn} ${s.teal}`}>
+            <Link href="/app" className={`${s.btn} ${s.teal}`}>
               Get Started Free →
             </Link>
           </div>

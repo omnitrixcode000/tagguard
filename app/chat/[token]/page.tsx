@@ -22,6 +22,8 @@ export default function ChatPage({ params }: { params: Promise<{ token: string }
   const [tagName, setTagName] = useState('')
   const [callStatus, setCallStatus] = useState<CallStatus>('idle')
   const [isMuted, setIsMuted] = useState(false)
+  const [iceServers, setIceServers] = useState<RTCIceServer[]>([{ urls: 'stun:stun.l.google.com:19302' }])
+  const notifiedRef = useRef(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
@@ -31,6 +33,14 @@ export default function ChatPage({ params }: { params: Promise<{ token: string }
 
   const supabase = useMemo(() => createClient(), [])
   const chatId = token
+
+  // Fetch TURN credentials on mount
+  useEffect(() => {
+    fetch('/api/turn-credentials')
+      .then(r => r.json())
+      .then(({ iceServers: servers }) => { if (servers) setIceServers(servers) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | undefined
@@ -119,9 +129,7 @@ export default function ChatPage({ params }: { params: Promise<{ token: string }
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const createPC = () => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    })
+    const pc = new RTCPeerConnection({ iceServers })
 
     pc.onicecandidate = (e) => {
       if (e.candidate && callChannelRef.current) {
@@ -160,6 +168,15 @@ export default function ChatPage({ params }: { params: Promise<{ token: string }
         event: 'call_offer',
         payload: { sdp: offer.sdp }
       })
+
+      // Notify owner of incoming call
+      if (sender === 'finder') {
+        fetch('/api/notify-owner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-webhook-secret': '' },
+          body: JSON.stringify({ type: 'call', scan_token: chatId }),
+        }).catch(() => {})
+      }
     } catch {
       alert('Could not access microphone. Please allow mic permission.')
       setCallStatus('idle')
@@ -206,9 +223,19 @@ export default function ChatPage({ params }: { params: Promise<{ token: string }
 
   const send = async () => {
     if (!input.trim()) return
-    const text = input.trim().slice(0, MAX_MSG_LENGTH)   // enforce length cap
+    const text = input.trim().slice(0, MAX_MSG_LENGTH)
     setInput('')
     await supabase.from('messages').insert({ chat_id: chatId, sender, content: text, created_at: new Date().toISOString() })
+
+    // Notify owner on finder's first message (fire-and-forget)
+    if (sender === 'finder' && !notifiedRef.current) {
+      notifiedRef.current = true
+      fetch('/api/notify-owner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': '' },
+        body: JSON.stringify({ type: 'message', scan_token: chatId, message_preview: text.slice(0, 80) }),
+      }).catch(() => {})
+    }
   }
 
   const handleKey = (e: React.KeyboardEvent) => {

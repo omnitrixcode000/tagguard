@@ -35,7 +35,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="TagGuard" />
       </head>
-      <body className={font.className} suppressHydrationWarning>{children}</body>
+      <body className={font.className} suppressHydrationWarning>
+        {/* Capture beforeinstallprompt as early as possible — before any component mounts */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          window.__pwaInstallPrompt = null;
+          window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            window.__pwaInstallPrompt = e;
+          });
+        `}} />
+        {children}
+      </body>
     </html>
   )
 }
